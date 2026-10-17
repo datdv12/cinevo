@@ -1,10 +1,9 @@
 """API phim (công khai, không cần đăng nhập)."""
-from datetime import datetime
-
 from flask import Blueprint, jsonify, request
 
 from ..extensions import db
 from ..models import Cinema, Movie, Room, Showtime
+from ..timeutil import local_now
 
 bp = Blueprint("movies", __name__, url_prefix="/api/movies")
 
@@ -21,7 +20,7 @@ def list_movies():
         query = query.filter(Movie.title.ilike(f"%{q}%"))
     if city := request.args.get("city"):   # chỉ giữ phim có suất chiếu sắp tới tại khu vực
         ids = (db.session.query(Showtime.movie_id).join(Room).join(Cinema)
-               .filter(Cinema.city == city, Showtime.start_time >= datetime.now()))
+               .filter(Cinema.city == city, Showtime.start_time >= local_now()))
         query = query.filter(Movie.status == "coming_soon") if request.args.get("status") == "coming_soon" \
             else query.filter(Movie.id.in_(ids))
     return jsonify([m.to_dict() for m in query.order_by(Movie.rating.desc()).all()])

@@ -4,12 +4,13 @@ Chạy tay:   python database/seed.py --reset     (xóa sạch và tạo lại)
 run.py tự động gọi seed_demo() khi database còn trống.
 """
 import sys
-from datetime import date, datetime, time, timedelta
+from datetime import datetime, time, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # cho phép chạy trực tiếp file này
 
 from app import create_app                      # noqa: E402
+from app.timeutil import local_now             # noqa: E402
 from app.extensions import db                   # noqa: E402
 from app.models import (Cinema, Food, Movie, Promotion, Role, Room, Seat, Showtime, User,   # noqa: E402
                         ROLE_ADMIN, ROLE_MANAGER, ROLE_USER, SEAT_STANDARD, SEAT_VIP, STATUS_ACTIVE)
@@ -65,7 +66,7 @@ def seed_demo():
     for title, genre, mins, age, rating, director, status, color, desc in MOVIES:
         m = Movie(title=title, genre=genre, duration_minutes=mins, age_rating=age, rating=rating,
                   director=director, status=status, poster_color=color, description=desc,
-                  release_date=date.today() + timedelta(days=-14 if status == "now_showing" else 30))
+                  release_date=local_now().date() + timedelta(days=-14 if status == "now_showing" else 30))
         movies.append(m)
     db.session.add_all(movies)
 
@@ -92,7 +93,7 @@ def seed_demo():
             for s, slot in enumerate(SLOTS):
                 movie = showing[(idx + s + day) % len(showing)]
                 db.session.add(Showtime(movie_id=movie.id, room_id=room.id, base_price=90000,
-                                        start_time=datetime.combine(date.today() + timedelta(days=day), slot)))
+                                        start_time=datetime.combine(local_now().date() + timedelta(days=day), slot)))
 
     db.session.add_all([Food(name=n, description=d, price=p, is_combo=c) for n, d, p, c in FOODS])
     db.session.add_all([Promotion(code="CINEVO10", description="Giảm 10% cho khách mới", discount_percent=10),

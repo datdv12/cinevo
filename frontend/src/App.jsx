@@ -2,6 +2,7 @@
 // /user/*  -> khách hàng | /manager/* -> quản lý rạp | /admin/* -> quản trị viên
 import { Navigate, Route, Routes } from "react-router-dom";
 import AuthModal from "./components/AuthModal";
+import FeatureGate from "./components/FeatureGate";
 import ProtectedRoute from "./components/ProtectedRoute";
 import AdminLayout from "./layouts/AdminLayout";
 import ManagerLayout from "./layouts/ManagerLayout";
@@ -92,7 +93,7 @@ export default function App() {
           <Route path="movies" element={<AdminMovieManagement />} />
           <Route path="transactions" element={<TransactionManagement />} />
           <Route path="promotions" element={<PromotionManagement />} />
-          <Route path="ai" element={<AIManagement />} />
+          <Route path="ai" element={<FeatureGate feature="ai" fallback="/admin"><AIManagement /></FeatureGate>} />
           <Route path="roles" element={<RoleManagement />} />
           <Route path="settings" element={<SystemSettings />} />
           <Route path="logs" element={<ActivityLog />} />

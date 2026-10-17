@@ -8,6 +8,7 @@ import SeatMap from "../../components/SeatMap";
 import StepProgress from "../../components/StepProgress";
 import { useAuth } from "../../context/AuthContext";
 import { useBooking } from "../../context/BookingContext";
+import { useFeatures } from "../../context/FeaturesContext";
 import { aiService } from "../../services/aiService";
 import { movieService } from "../../services/movieService";
 import { formatDate, formatTime, formatVND } from "../../utils/format";
@@ -18,6 +19,7 @@ export default function SeatSelectionPage() {
   const { showtimeId } = useParams();
   const navigate = useNavigate();
   const { requireLogin } = useAuth();
+  const { features } = useFeatures();
   const { booking, saveSeatSelection } = useBooking();
   const [data, setData] = useState(null);
   const [selected, setSelected] = useState([]);       // mảng seat object
@@ -72,12 +74,14 @@ export default function SeatSelectionPage() {
       <h1 className="page-title">{st.movie.title}</h1>
       <p className="muted">{st.cinema.name} · {st.room.name} · {formatDate(st.start_time)} · {formatTime(st.start_time)}</p>
 
-      <div className="ai-box">
-        <b>Gợi ý ghế bằng AI</b>
-        <button className="btn btn-outline btn-sm" onClick={() => askAi(1)}>1 người</button>
-        <button className="btn btn-outline btn-sm" onClick={() => askAi(2)}>2 người</button>
-        {aiMsg && <span className="muted small">{aiMsg}</span>}
-      </div>
+      {features.ai && (
+        <div className="ai-box">
+          <b>Gợi ý ghế bằng AI</b>
+          <button className="btn btn-outline btn-sm" onClick={() => askAi(1)}>1 người</button>
+          <button className="btn btn-outline btn-sm" onClick={() => askAi(2)}>2 người</button>
+          {aiMsg && <span className="muted small">{aiMsg}</span>}
+        </div>
+      )}
 
       <SeatMap seats={data.seats} selectedIds={selected.map((s) => s.id)} suggestedIds={suggested} onToggle={toggle} />
       <ErrorBox message={error} />

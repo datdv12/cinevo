@@ -14,3 +14,6 @@ dist/
 .vscode/
 .idea/
 .DS_Store
+
+# Khóa bí mật sinh tự động khi phát triển
+.dev_secret_key

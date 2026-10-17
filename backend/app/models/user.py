@@ -1,9 +1,8 @@
 """Model User + OtpCode."""
-from datetime import datetime
-
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from ..extensions import db
+from ..timeutil import iso_utc, utc_now
 
 STATUS_PENDING = "PENDING"   # đã đăng ký, chưa xác thực OTP
 STATUS_ACTIVE = "ACTIVE"
@@ -20,7 +19,7 @@ class User(db.Model):
     password_hash = db.Column(db.String(255), nullable=False)
     role_id = db.Column(db.Integer, db.ForeignKey("roles.id"), nullable=False)
     status = db.Column(db.String(20), default=STATUS_PENDING, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
 
     role = db.relationship("Role")
 
@@ -38,7 +37,7 @@ class User(db.Model):
             "phone": self.phone,
             "role": self.role.name if self.role else None,
             "status": self.status,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": iso_utc(self.created_at),
         }
 
 

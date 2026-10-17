@@ -1,7 +1,6 @@
 """Model ActivityLog (nhật ký hoạt động cho trang Admin)."""
-from datetime import datetime
-
 from ..extensions import db
+from ..timeutil import iso_utc, utc_now
 
 
 class ActivityLog(db.Model):
@@ -11,14 +10,14 @@ class ActivityLog(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
     action = db.Column(db.String(60), nullable=False)
     detail = db.Column(db.String(250))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
 
     user = db.relationship("User")
 
     def to_dict(self):
         return {"id": self.id, "user": self.user.email if self.user else "-",
                 "action": self.action, "detail": self.detail,
-                "created_at": self.created_at.isoformat()}
+                "created_at": iso_utc(self.created_at)}
 
 
 def log_activity(user_id, action, detail=""):

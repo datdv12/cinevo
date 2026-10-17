@@ -9,7 +9,11 @@ def register_blueprints(app):
     from .bookings import bp as bookings_bp
     from .manager import bp as manager_bp
     from .admin import bp as admin_bp
-    from .ai import bp as ai_bp
 
-    for bp in (auth_bp, movies_bp, cinemas_bp, showtimes_bp, bookings_bp, manager_bp, admin_bp, ai_bp):
+    for bp in (auth_bp, movies_bp, cinemas_bp, showtimes_bp, bookings_bp, manager_bp, admin_bp):
         app.register_blueprint(bp)
+
+    # Module AI chỉ được đăng ký khi bật cờ FEATURE_AI (mặc định TẮT).
+    if app.config.get("FEATURE_AI"):
+        from .ai import bp as ai_bp
+        app.register_blueprint(ai_bp)

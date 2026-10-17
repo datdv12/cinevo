@@ -1,9 +1,8 @@
 """Logic tạo Booking. Giá luôn được TÍNH LẠI ở server, không tin giá từ client."""
-from datetime import datetime
-
 from sqlalchemy.exc import IntegrityError
 
 from ..extensions import db
+from ..timeutil import local_now
 from ..models import (Booking, BookingFood, BookingSeat, Food, Payment, PAYMENT_METHODS,
                       Seat, Showtime, log_activity)
 
@@ -23,7 +22,7 @@ def create_booking(user, showtime_id, seat_ids, foods, method) -> Booking:
     showtime = db.session.get(Showtime, showtime_id)
     if not showtime:
         raise BookingError("Suất chiếu không tồn tại.", 404)
-    if showtime.start_time < datetime.now():
+    if showtime.start_time < local_now():
         raise BookingError("Suất chiếu đã bắt đầu.")
     if method not in PAYMENT_METHODS:
         raise BookingError("Phương thức thanh toán không hợp lệ.")
@@ -49,8 +48,13 @@ def create_booking(user, showtime_id, seat_ids, foods, method) -> Booking:
 
     food_total = 0
     for item in foods or []:
-        food = db.session.get(Food, item.get("food_id"))
-        qty = int(item.get("quantity", 0))
+        if not isinstance(item, dict):
+            raise BookingError("Combo đồ ăn không hợp lệ.")
+        try:
+            food_id, qty = int(item.get("food_id")), int(item.get("quantity", 0))
+        except (TypeError, ValueError):
+            raise BookingError("Combo đồ ăn không hợp lệ.")
+        food = db.session.get(Food, food_id)
         if not food or not food.available or not (0 < qty <= 20):
             raise BookingError("Combo đồ ăn không hợp lệ.")
         food_total += food.price * qty
@@ -59,7 +63,7 @@ def create_booking(user, showtime_id, seat_ids, foods, method) -> Booking:
 
     booking.seat_amount, booking.food_amount = seat_total, food_total
     booking.total_amount = seat_total + food_total
-    booking.code = f"CV{datetime.now():%m%y}{booking.id:04d}"       # ví dụ CV10260001
+    booking.code = f"CV{local_now():%m%y}{booking.id:04d}"       # ví dụ CV10260001
 
     # TODO: tích hợp cổng thanh toán thật. Hiện tại luôn coi là thanh toán thành công.
     db.session.add(Payment(booking_id=booking.id, method=method, amount=booking.total_amount,

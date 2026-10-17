@@ -1,11 +1,12 @@
 """API cho ADMIN (quản trị hệ thống). Chỉ role ADMIN."""
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 from sqlalchemy import func
 
 from ..extensions import db
 from ..models import (ActivityLog, Booking, Movie, Payment, Promotion, ROLE_ADMIN, ROLE_MANAGER,
                       Role, STATUS_ACTIVE, STATUS_LOCKED, User, log_activity)
 from ..services.auth_service import roles_required
+from ..services.validation import EMAIL_RE, PHONE_RE, ApiError, clean_str, json_body
 from flask import g
 
 bp = Blueprint("admin", __name__, url_prefix="/api/admin")
@@ -38,9 +39,9 @@ def users():
 @admin_only
 def set_status(user_id):
     user = db.session.get(User, user_id)
-    status = (request.get_json(silent=True) or {}).get("status")
+    status = json_body().get("status")
     if not user or status not in (STATUS_ACTIVE, STATUS_LOCKED):
-        return jsonify({"message": "Dữ liệu không hợp lệ."}), 400
+        raise ApiError("Dữ liệu không hợp lệ.")
     if user.id == g.current_user.id:
         return jsonify({"message": "Không thể tự khóa tài khoản của mình."}), 400
     user.status = status
@@ -59,11 +60,16 @@ def managers():
 @admin_only
 def create_manager():
     """Chỉ ADMIN mới tạo được MANAGER (đây là cách DUY NHẤT để có tài khoản MANAGER)."""
-    d = request.get_json(silent=True) or {}
-    email = (d.get("email") or "").strip().lower()
-    if not email or len(d.get("password") or "") < 6 or User.query.filter_by(email=email).first():
-        return jsonify({"message": "Email trống, đã tồn tại hoặc mật khẩu quá ngắn."}), 400
-    user = User(full_name=d.get("full_name") or email, email=email, phone=d.get("phone"),
+    d = json_body()
+    email = clean_str(d.get("email"), "email", max_len=160, required=True).lower()
+    password, phone = d.get("password"), clean_str(d.get("phone"), "số điện thoại", max_len=15)
+    if not EMAIL_RE.match(email) or (phone and not PHONE_RE.match(phone)):
+        raise ApiError("Email hoặc số điện thoại không hợp lệ.")
+    if not isinstance(password, str) or not (6 <= len(password) <= 128):
+        raise ApiError("Mật khẩu cần từ 6 đến 128 ký tự.")
+    if User.query.filter_by(email=email).first():
+        raise ApiError("Email đã tồn tại.", 409)
+    user = User(full_name=clean_str(d.get("full_name"), "họ tên", max_len=120) or email, email=email, phone=phone or None,
                 role=Role.query.filter_by(name=ROLE_MANAGER).one(), status=STATUS_ACTIVE)
     user.set_password(d["password"])
     db.session.add(user)
@@ -99,6 +105,8 @@ def roles():
 @bp.get("/ai-settings")
 @admin_only
 def ai_settings():
+    if not current_app.config["FEATURE_AI"]:     # AI đang tắt: coi như endpoint không tồn tại
+        raise ApiError("Không tìm thấy tài nguyên.", 404)
     return jsonify([{"key": k, "value": str(v)} for k, v in AI_SETTINGS.items()])
 
 

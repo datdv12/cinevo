@@ -1,13 +1,16 @@
-# CINEVO - Website đặt vé xem phim tích hợp AI
+# CINEVO - Website đặt vé xem phim
 
-Khung dự án (boilerplate) gồm **React + Vite** (frontend), **Flask** (backend), **SQLite** (database) và module **AI** tách riêng.
-Giai đoạn này chỉ dựng khung: thanh toán là **giả lập**, AI trả **dữ liệu giả định**, OTP là **mã cố định** (chưa gửi email thật).
+Gồm **React + Vite** (frontend), **Flask** (backend) và **SQLite** (database).
+Hiện tại thanh toán là **giả lập** và OTP là **mã cố định** (chưa gửi email thật).
+
+> **Chưa tích hợp AI.** Theo lộ trình hiện tại, mọi tính năng AI đang **TẮT** (`FEATURE_AI=false`): giao diện ẩn và API `/api/ai/*` không tồn tại. Code AI được giữ lại trong `backend/app/ai/` để dùng ở giai đoạn sau, không xóa.
 
 ## 1. Yêu cầu cài đặt
 - Python 3.10 trở lên
 - Node.js 18 trở lên
 
 ## 2. Chạy backend (Flask)
+(Tùy chọn) tạo file cấu hình: sao chép `.env.example` thành `.env`. Có thể bỏ qua khi phát triển, hệ thống tự dùng giá trị an toàn.
 Mở terminal (PowerShell) tại thư mục dự án:
 
 ```powershell
@@ -19,7 +22,7 @@ python run.py
 ```
 
 - Lần chạy đầu tiên, `run.py` tự tạo file `backend/database/cinevo.db` cùng toàn bộ bảng và dữ liệu demo.
-- Backend chạy tại http://localhost:5000 (kiểm tra: http://localhost:5000/api/health).
+- Backend chỉ lắng nghe `127.0.0.1:5000` (kiểm tra: http://localhost:5000/api/health). Muốn mở cho mạng LAN phải đặt `HOST` trong `.env`, khi đó chế độ debug tự tắt.
 - Nếu PowerShell chặn `activate`, chạy một lần: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
 - Muốn tạo lại database từ đầu (ví dụ ngày suất chiếu demo đã cũ): `python database/seed.py --reset`.
 
@@ -49,7 +52,7 @@ Khi tự đăng ký tài khoản mới, mã OTP demo là **123456**.
 ## 5. Luồng khách hàng đã được đáp ứng
 ```
 Trang chủ → Chọn khu vực → Khám phá phim → Chi tiết phim → Chọn ngày & rạp → Chọn suất chiếu
-→ Chọn ghế (có nút AI gợi ý ghế 1-2 người)
+→ Chọn ghế
 → [Bấm Tiếp tục] CHƯA đăng nhập mới hiện popup "Đăng nhập Cinevo" (Đăng ký / Đăng nhập)
 → Đăng ký: Họ tên, Email, SĐT, Mật khẩu, Nhập lại mật khẩu, đồng ý điều khoản
 → Xác thực OTP 6 số → tài khoản USER / ACTIVE
@@ -110,7 +113,9 @@ Cinevo/
 └── README.md
 ```
 
-## 8. Module AI (khung)
+## 8. Module AI (TẠM TẮT, giữ code)
+Mặc định `FEATURE_AI=false` (xem `.env.example`). Khi tắt: không đăng ký route AI, `/api/admin/ai-settings` trả 404, frontend ẩn chatbot, mục gợi ý phim, nút gợi ý ghế và trang Quản lý AI. Chỉ bật khi được cho phép bắt đầu giai đoạn AI.
+
 | Class | File | Hiện tại | Nơi gắn AI thật |
 |---|---|---|---|
 | `MovieRecommendationService` | `ai/recommendation_service.py` | Lọc theo thể loại, xếp theo điểm | `recommend()` |
@@ -124,5 +129,30 @@ Mỗi chỗ cần gọi AI thật đều có comment `TODO (AI thật)`.
 Dùng SQLAlchemy nên không cần sửa model. Cài `pip install psycopg2-binary`, rồi đặt `DATABASE_URL` trong `.env`
 (ví dụ `postgresql+psycopg2://user:pass@localhost:5432/cinevo`).
 
-## 10. Việc tiếp theo (chưa làm ở giai đoạn khung)
-Thanh toán thật, gửi OTP qua email, gọi AI/LLM thật, kết nối API phim thật, form Thêm/Sửa/Xóa trong trang manager/admin, hủy vé, khuyến mãi khi thanh toán.
+## 10. Bảo mật và cấu hình môi trường
+| Hạng mục | Cách xử lý |
+|---|---|
+| `SECRET_KEY` | Production **bắt buộc** khóa ≥ 32 ký tự, thiếu/yếu là không khởi động. Development tự sinh khóa ngẫu nhiên (file `backend/database/.dev_secret_key`, đã ignore) |
+| Debug | Chỉ bật ở development **và** khi `HOST` là localhost |
+| OTP | Development: mã cố định `123456` + gợi ý trên giao diện. Production: mã ngẫu nhiên, không trả ra API (chưa có gửi email thật) |
+| Giới hạn lần thử | Đăng nhập 10 lần/5 phút (theo IP + email); OTP 5 lần/10 phút/email; đăng ký 10 lần/giờ/IP. Trả `429` + `Retry-After` |
+| Dữ liệu vào | Giới hạn độ dài, kiểm tra kiểu và giá trị; JSON hỏng trả `400`; body tối đa 1 MB |
+| Giờ | Mốc hệ thống lưu UTC; giờ chiếu là giờ Việt Nam (UTC+7), xem `app/timeutil.py` |
+| Header | `nosniff`, `X-Frame-Options`, `Referrer-Policy`; HSTS ở production |
+
+Còn tồn đọng (ghi nhận, xử lý ở phase sau): token JWT lưu `localStorage` và chưa thu hồi được phía server; bộ đếm giới hạn lần thử là in-memory (cần Redis khi chạy nhiều worker); `npm audit` báo `vite` và `react-router-dom` có bản vá ở phiên bản major mới, chưa nâng cấp; chưa có migration (Alembic).
+
+## 11. Kiểm thử
+```powershell
+cd backend
+pip install -r requirements-dev.txt
+python -m pytest
+```
+Bộ test (`backend/tests/`) gồm tài khoản, chống nâng quyền, ma trận phân quyền, token giả, tranh chấp ghế (12 request đồng thời), giá do server tính, validate, rate limit, cấu hình production.
+
+## 12. Git và điểm khôi phục
+Dự án đã có Git. Tag `phase0-baseline` là bản trước khi gia cố. Quay lại: `git checkout phase0-baseline`.
+Trước mỗi thay đổi lớn hãy `git commit` và đặt tag mới.
+
+## 13. Việc tiếp theo (chưa làm)
+Thanh toán thật, gửi OTP qua email, kết nối API phim thật, form Thêm/Sửa/Xóa trong trang manager/admin, hủy vé, khuyến mãi khi thanh toán.

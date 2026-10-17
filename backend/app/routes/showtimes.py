@@ -6,6 +6,8 @@ from flask import Blueprint, jsonify, request
 from ..extensions import db
 from ..models import Cinema, Room, Seat, Showtime
 from ..services.booking_service import taken_seat_ids
+from ..services.validation import int_arg
+from ..timeutil import local_now
 
 bp = Blueprint("showtimes", __name__, url_prefix="/api/showtimes")
 
@@ -13,11 +15,11 @@ bp = Blueprint("showtimes", __name__, url_prefix="/api/showtimes")
 @bp.get("")
 def list_showtimes():
     """?movie_id= &cinema_id= &city= &date=YYYY-MM-DD (chỉ trả suất chưa bắt đầu)."""
-    query = Showtime.query.join(Room).join(Cinema).filter(Showtime.start_time >= datetime.now())
-    if v := request.args.get("movie_id"):
-        query = query.filter(Showtime.movie_id == int(v))
-    if v := request.args.get("cinema_id"):
-        query = query.filter(Cinema.id == int(v))
+    query = Showtime.query.join(Room).join(Cinema).filter(Showtime.start_time >= local_now())
+    if (v := int_arg("movie_id")) is not None:
+        query = query.filter(Showtime.movie_id == v)
+    if (v := int_arg("cinema_id")) is not None:
+        query = query.filter(Cinema.id == v)
     if v := request.args.get("city"):
         query = query.filter(Cinema.city == v)
     if v := request.args.get("date"):

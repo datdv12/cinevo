@@ -1,68 +1,64 @@
 """Đăng ký / OTP / đăng nhập. Role khi tự đăng ký luôn là USER."""
-import re
-
-from flask import Blueprint, g, jsonify, request
+from flask import Blueprint, current_app, g, jsonify
 
 from ..extensions import db
 from ..models import ROLE_USER, Role, STATUS_ACTIVE, STATUS_PENDING, User, log_activity
 from ..services.auth_service import (auth_required, create_token, issue_otp, mask_email, verify_otp)
-from flask import current_app
+from ..services.rate_limit import email_key, ip_and_email_key, rate_limit
+from ..services.validation import (EMAIL_RE, PHONE_RE, ApiError, clean_str, json_body)
 
 bp = Blueprint("auth", __name__, url_prefix="/api/auth")
-EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-PHONE_RE = re.compile(r"^(0|\+84)\d{9,10}$")
 
 
-def _err(message, status=400, code=None):
-    return jsonify({"message": message, "code": code}), status
+def _otp_hint_body(code):
+    return {"otp_hint": code} if current_app.config["OTP_DEBUG_HINT"] else {}
 
 
 @bp.post("/register")
+@rate_limit("register", 10, 3600)
 def register():
-    data = request.get_json(silent=True) or {}
-    # LƯU Ý BẢO MẬT: cố tình KHÔNG đọc data["role"]. Client không thể tự chọn MANAGER/ADMIN.
-    full_name = (data.get("full_name") or "").strip()
-    email = (data.get("email") or "").strip().lower()
-    phone = (data.get("phone") or "").strip()
-    password = data.get("password") or ""
-
-    if len(full_name) < 2:
-        return _err("Vui lòng nhập họ và tên.")
+    data = json_body()
+    # LƯU Ý BẢO MẬT: cố tình KHÔNG đọc role/role_id/status từ client. Client không thể tự chọn MANAGER/ADMIN.
+    full_name = clean_str(data.get("full_name"), "họ và tên", min_len=2, max_len=120, required=True)
+    email = clean_str(data.get("email"), "email", max_len=160, required=True).lower()
+    phone = clean_str(data.get("phone"), "số điện thoại", max_len=15, required=True)
+    password = data.get("password")
+    if not isinstance(password, str) or not (6 <= len(password) <= 128):
+        raise ApiError("Mật khẩu cần từ 6 đến 128 ký tự.")
     if not EMAIL_RE.match(email):
-        return _err("Email không hợp lệ.")
+        raise ApiError("Email không hợp lệ.")
     if not PHONE_RE.match(phone):
-        return _err("Số điện thoại không hợp lệ.")
-    if len(password) < 6:
-        return _err("Mật khẩu cần ít nhất 6 ký tự.")
+        raise ApiError("Số điện thoại không hợp lệ.")
     if password != data.get("confirm_password"):
-        return _err("Mật khẩu nhập lại không khớp.")
-    if not data.get("accept_terms"):
-        return _err("Bạn cần đồng ý với điều khoản sử dụng.")
+        raise ApiError("Mật khẩu nhập lại không khớp.")
+    if data.get("accept_terms") is not True:
+        raise ApiError("Bạn cần đồng ý với điều khoản sử dụng.")
 
     user = User.query.filter_by(email=email).first()
     if user and user.status != STATUS_PENDING:
-        return _err("Email này đã được sử dụng.", 409, "EMAIL_EXISTS")
+        raise ApiError("Email này đã được sử dụng.", 409, "EMAIL_EXISTS")
     if not user:   # tài khoản PENDING cũ được phép đăng ký lại (cập nhật thông tin)
         user = User(email=email, role=Role.query.filter_by(name=ROLE_USER).one())
         db.session.add(user)
     user.full_name, user.phone, user.status = full_name, phone, STATUS_PENDING
     user.set_password(password)
     db.session.flush()
-    hint = issue_otp(user)
+    code = issue_otp(user)
     db.session.commit()
 
-    body = {"message": "Đã gửi mã xác thực.", "email": email, "masked_email": mask_email(email)}
-    if current_app.config["OTP_DEBUG_HINT"]:
-        body["otp_hint"] = hint    # chỉ để demo. Production phải bỏ.
-    return jsonify(body), 201
+    return jsonify({"message": "Đã gửi mã xác thực.", "email": email,
+                    "masked_email": mask_email(email), **_otp_hint_body(code)}), 201
 
 
 @bp.post("/verify-otp")
+@rate_limit("otp-email", 5, 600, key=email_key)     # tối đa 5 lần thử / 10 phút / email
+@rate_limit("otp-ip", 30, 600)
 def verify():
-    data = request.get_json(silent=True) or {}
-    user = User.query.filter_by(email=(data.get("email") or "").strip().lower()).first()
-    if not user or not verify_otp(user, str(data.get("code") or "")):
-        return _err("Mã xác thực không đúng hoặc đã hết hạn.", 400, "OTP_INVALID")
+    data = json_body()
+    user = User.query.filter_by(email=clean_str(data.get("email"), "email", max_len=160).lower()).first()
+    code = data.get("code")
+    if not user or not isinstance(code, str) or not verify_otp(user, code):
+        raise ApiError("Mã xác thực không đúng hoặc đã hết hạn.", 400, "OTP_INVALID")
     user.status = STATUS_ACTIVE
     log_activity(user.id, "REGISTER_VERIFIED", user.email)
     db.session.commit()
@@ -70,9 +66,10 @@ def verify():
 
 
 @bp.post("/resend-otp")
+@rate_limit("otp-resend", 3, 600, key=email_key)
 def resend():
-    data = request.get_json(silent=True) or {}
-    user = User.query.filter_by(email=(data.get("email") or "").strip().lower(),
+    data = json_body()
+    user = User.query.filter_by(email=clean_str(data.get("email"), "email", max_len=160).lower(),
                                 status=STATUS_PENDING).first()
     if user:
         issue_otp(user)
@@ -81,18 +78,22 @@ def resend():
 
 
 @bp.post("/login")
+@rate_limit("login", 10, 300, key=ip_and_email_key)   # tối đa 10 lần / 5 phút cho mỗi cặp IP + email
+@rate_limit("login-ip", 60, 300)
 def login():
-    data = request.get_json(silent=True) or {}
-    email = (data.get("email") or "").strip().lower()
+    data = json_body()
+    email = clean_str(data.get("email"), "email", max_len=160).lower()
+    password = data.get("password")
     user = User.query.filter_by(email=email).first()
-    if not user or not user.check_password(data.get("password") or ""):
-        return _err("Email hoặc mật khẩu không đúng.", 401, "BAD_CREDENTIALS")
+    if not user or not isinstance(password, str) or not user.check_password(password):
+        raise ApiError("Email hoặc mật khẩu không đúng.", 401, "BAD_CREDENTIALS")
     if user.status == STATUS_PENDING:
-        issue_otp(user)
+        code = issue_otp(user)
         db.session.commit()
-        return _err("Tài khoản chưa xác thực. Vui lòng nhập mã OTP.", 403, "NOT_VERIFIED")
+        return jsonify({"message": "Tài khoản chưa xác thực. Vui lòng nhập mã OTP.", "code": "NOT_VERIFIED",
+                        **_otp_hint_body(code)}), 403
     if user.status != STATUS_ACTIVE:
-        return _err("Tài khoản đã bị khóa.", 403, "LOCKED")
+        raise ApiError("Tài khoản đã bị khóa.", 403, "LOCKED")
     log_activity(user.id, "LOGIN", user.email)
     db.session.commit()
     return jsonify({"token": create_token(user), "user": user.to_dict()})
@@ -107,11 +108,14 @@ def me():
 @bp.put("/me")
 @auth_required
 def update_me():
-    data = request.get_json(silent=True) or {}
+    data = json_body()
     user = g.current_user
-    if "full_name" in data and len(data["full_name"].strip()) >= 2:
-        user.full_name = data["full_name"].strip()
-    if "phone" in data and PHONE_RE.match(data["phone"].strip()):
-        user.phone = data["phone"].strip()
+    if "full_name" in data:
+        user.full_name = clean_str(data["full_name"], "họ và tên", min_len=2, max_len=120, required=True)
+    if "phone" in data:
+        phone = clean_str(data["phone"], "số điện thoại", max_len=15, required=True)
+        if not PHONE_RE.match(phone):
+            raise ApiError("Số điện thoại không hợp lệ.")
+        user.phone = phone
     db.session.commit()
     return jsonify({"user": user.to_dict()})

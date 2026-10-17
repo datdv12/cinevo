@@ -1,5 +1,6 @@
 """Tạo/kiểm tra JWT, decorator phân quyền, và logic OTP giả lập."""
-from datetime import datetime, timedelta
+import secrets
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 
 import jwt
@@ -7,13 +8,15 @@ from flask import current_app, g, jsonify, request
 
 from ..extensions import db
 from ..models import OtpCode, User, STATUS_ACTIVE
+from ..timeutil import utc_now
+from .email_service import deliver_otp
 
 
 def create_token(user: User) -> str:
     payload = {
         "sub": str(user.id),
         "role": user.role.name,
-        "exp": datetime.utcnow() + timedelta(hours=current_app.config["JWT_EXPIRES_HOURS"]),
+        "exp": datetime.now(timezone.utc) + timedelta(hours=current_app.config["JWT_EXPIRES_HOURS"]),
     }
     return jwt.encode(payload, current_app.config["SECRET_KEY"], algorithm="HS256")
 
@@ -57,16 +60,18 @@ def roles_required(*roles):
 
 # ---------- OTP giả lập ----------
 def issue_otp(user: User) -> str:
-    code = current_app.config["MOCK_OTP_CODE"]   # TODO: sinh mã ngẫu nhiên + gửi email thật
-    db.session.add(OtpCode(user_id=user.id, code=code,
-                           expires_at=datetime.utcnow() + timedelta(minutes=10)))
+    """Tạo OTP mới (vô hiệu các mã cũ). Dev: mã cố định nếu cấu hình; còn lại là mã ngẫu nhiên."""
+    code = current_app.config["MOCK_OTP_CODE"] or f"{secrets.randbelow(10**6):06d}"
+    OtpCode.query.filter_by(user_id=user.id, used=False).update({"used": True})
+    db.session.add(OtpCode(user_id=user.id, code=code, expires_at=utc_now() + timedelta(minutes=10)))
+    deliver_otp(user.email, code)
     return code
 
 
 def verify_otp(user: User, code: str) -> bool:
     otp = (OtpCode.query.filter_by(user_id=user.id, code=code, used=False)
            .order_by(OtpCode.id.desc()).first())
-    if not otp or otp.expires_at < datetime.utcnow():
+    if not otp or otp.expires_at < utc_now():
         return False
     otp.used = True
     return True

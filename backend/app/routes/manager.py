@@ -7,7 +7,9 @@ from sqlalchemy import func
 from ..extensions import db
 from ..models import (Booking, Cinema, Food, Movie, Room, Seat, Showtime, ROLE_ADMIN, ROLE_MANAGER)
 from ..services.auth_service import roles_required
+from ..services.validation import clean_int, clean_str, ApiError, json_body, int_arg
 
+MOVIE_STATUSES = ("now_showing", "coming_soon")
 bp = Blueprint("manager", __name__, url_prefix="/api/manager")
 staff = roles_required(ROLE_MANAGER, ROLE_ADMIN)
 
@@ -35,11 +37,14 @@ def movies():
 @staff
 def create_movie():
     """Mẫu thêm phim. TODO: validate đầy đủ ở giai đoạn nghiệp vụ."""
-    d = request.get_json(silent=True) or {}
-    if not d.get("title"):
-        return jsonify({"message": "Thiếu tên phim."}), 400
-    movie = Movie(title=d["title"], genre=d.get("genre"), duration_minutes=d.get("duration_minutes", 120),
-                  description=d.get("description"), status=d.get("status", "coming_soon"))
+    d = json_body()
+    status = d.get("status", "coming_soon")
+    if status not in MOVIE_STATUSES:
+        raise ApiError("Trạng thái phim không hợp lệ.")
+    movie = Movie(title=clean_str(d.get("title"), "tên phim", max_len=200, required=True),
+                  genre=clean_str(d.get("genre"), "thể loại", max_len=120) or None,
+                  duration_minutes=clean_int(d.get("duration_minutes", 120), "thời lượng", lo=1, hi=600),
+                  description=clean_str(d.get("description"), "mô tả", max_len=5000) or None, status=status)
     db.session.add(movie)
     db.session.commit()
     return jsonify(movie.to_dict()), 201
@@ -61,8 +66,8 @@ def rooms():
 @staff
 def seats():
     q = Seat.query
-    if rid := request.args.get("room_id"):
-        q = q.filter_by(room_id=int(rid))
+    if (rid := int_arg("room_id")) is not None:
+        q = q.filter_by(room_id=rid)
     return jsonify([s.to_dict() for s in q.limit(200).all()])
 
 

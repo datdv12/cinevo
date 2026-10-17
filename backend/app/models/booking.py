@@ -1,7 +1,6 @@
 """Model Booking, BookingSeat, BookingFood."""
-from datetime import datetime
-
 from ..extensions import db
+from ..timeutil import iso_utc, local_now, utc_now
 
 
 class Booking(db.Model):
@@ -15,7 +14,7 @@ class Booking(db.Model):
     food_amount = db.Column(db.Integer, default=0)
     total_amount = db.Column(db.Integer, default=0)
     status = db.Column(db.String(20), default="PAID")                 # PENDING | PAID | CANCELLED
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
 
     user = db.relationship("User")
     showtime = db.relationship("Showtime")
@@ -32,7 +31,7 @@ class Booking(db.Model):
                       "poster_color": st.movie.poster_color, "poster_url": st.movie.poster_url},
             "cinema": st.room.cinema.name, "city": st.room.cinema.city,
             "room": st.room.name, "start_time": st.start_time.isoformat(),
-            "is_upcoming": st.start_time >= datetime.now(),
+            "is_upcoming": st.start_time >= local_now(),
             "seats": seat_labels,
             "foods": [{"name": bf.food.name, "quantity": bf.quantity, "unit_price": bf.unit_price}
                       for bf in self.foods],
@@ -40,7 +39,7 @@ class Booking(db.Model):
             "total_amount": self.total_amount,
             "payment": self.payment.to_dict() if self.payment else None,
             "user": {"id": self.user.id, "full_name": self.user.full_name, "email": self.user.email},
-            "created_at": self.created_at.isoformat(),
+            "created_at": iso_utc(self.created_at),
             "qr_payload": f"CINEVO|{self.code}|{st.id}|{','.join(seat_labels)}",
         }
 

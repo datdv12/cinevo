@@ -5,6 +5,7 @@ import CitySelector from "../../components/CitySelector";
 import MovieCard from "../../components/MovieCard";
 import Loading from "../../components/Loading";
 import { useBooking } from "../../context/BookingContext";
+import { useFeatures } from "../../context/FeaturesContext";
 import { aiService } from "../../services/aiService";
 import { movieService } from "../../services/movieService";
 
@@ -12,6 +13,7 @@ const GENRES = ["Hành động", "Hài", "Kinh dị", "Khoa học viễn tưởn
 
 export default function HomePage() {
   const { city } = useBooking();
+  const { features } = useFeatures();
   const [showing, setShowing] = useState(null);
   const [coming, setComing] = useState([]);
   const [genre, setGenre] = useState("");
@@ -22,7 +24,10 @@ export default function HomePage() {
     movieService.movies({ status: "now_showing", city }).then(setShowing).catch(() => setShowing([]));
   }, [city]);
   useEffect(() => { movieService.movies({ status: "coming_soon" }).then(setComing).catch(() => {}); }, []);
-  useEffect(() => { aiService.recommendMovies(genre).then(setAi).catch(() => setAi(null)); }, [genre]);
+  useEffect(() => {
+    if (!features.ai) return;     // AI đang tắt: không gọi API
+    aiService.recommendMovies(genre).then(setAi).catch(() => setAi(null));
+  }, [genre, features.ai]);
 
   return (
     <>
@@ -41,19 +46,21 @@ export default function HomePage() {
         ) : <div className="state-box">Chưa có suất chiếu tại khu vực này. Hãy thử khu vực khác.</div>}
       </section>
 
-      <section>
-        <h2 className="section-title">Cinevo AI gợi ý cho bạn</h2>
-        <div className="chips">
-          <button className={`chip ${!genre ? "active" : ""}`} onClick={() => setGenre("")}>Nổi bật</button>
-          {GENRES.map((g) => <button key={g} className={`chip ${g === genre ? "active" : ""}`} onClick={() => setGenre(g)}>{g}</button>)}
-        </div>
-        {ai && (
-          <>
-            <p className="muted">{ai.message}</p>
-            <div className="grid">{ai.movies.slice(0, 4).map((m) => <MovieCard key={m.id} movie={m} />)}</div>
-          </>
-        )}
-      </section>
+      {features.ai && (
+        <section>
+          <h2 className="section-title">Cinevo AI gợi ý cho bạn</h2>
+          <div className="chips">
+            <button className={`chip ${!genre ? "active" : ""}`} onClick={() => setGenre("")}>Nổi bật</button>
+            {GENRES.map((g) => <button key={g} className={`chip ${g === genre ? "active" : ""}`} onClick={() => setGenre(g)}>{g}</button>)}
+          </div>
+          {ai && (
+            <>
+              <p className="muted">{ai.message}</p>
+              <div className="grid">{ai.movies.slice(0, 4).map((m) => <MovieCard key={m.id} movie={m} />)}</div>
+            </>
+          )}
+        </section>
+      )}
 
       {coming.length > 0 && (
         <section>

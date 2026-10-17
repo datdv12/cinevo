@@ -28,7 +28,7 @@ export default function AuthPanel({ initialView = "login", onSuccess }) {
     run(async () => {
       try { onSuccess?.(await login(loginForm.email, loginForm.password)); }
       catch (err) {
-        if (err.code === "NOT_VERIFIED") { setOtp((o) => ({ ...o, email: loginForm.email, masked: loginForm.email, hint: "123456" })); go("otp"); }
+        if (err.code === "NOT_VERIFIED") { setOtp({ email: loginForm.email, masked: loginForm.email, hint: err.data?.otp_hint || "", digits: Array(6).fill("") }); go("otp"); }
         else throw err;
       }
     });
